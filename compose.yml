@@ -1,0 +1,37 @@
+services:
+  xserver-auto-renew:
+    build: .
+    container_name: xserver-auto-renew
+    environment:
+      - ID_VPS=${ID_VPS}
+      - USERNAME=${USERNAME}
+      - PASSWORD=${PASSWORD}
+    volumes:
+      # Mount cookies.json to persist login session
+      - ./cookies.json:/app/cookies.json
+      # Mount .env file for configuration
+      - ./.env:/app/.env:ro
+    # Remove the default command to allow manual execution
+    # Use: docker compose run --rm xserver-auto-renew pnpm run login
+    # Use: docker compose run --rm xserver-auto-renew pnpm run renew
+    # Use: docker compose run --rm xserver-auto-renew pnpm start
+    command: ["tail", "-f", "/dev/null"]
+    profiles:
+      - manual
+
+  # Service for scheduled runs (optional)
+  xserver-auto-renew-cron:
+    build: .
+    container_name: xserver-auto-renew-cron
+    environment:
+      - ID_VPS=${ID_VPS}
+      - USERNAME=${USERNAME}
+      - PASSWORD=${PASSWORD}
+    volumes:
+      - ./cookies.json:/app/cookies.json
+      - ./.env:/app/.env:ro
+    # Run the renewal process
+    command: ["pnpm", "start"]
+    profiles:
+      - cron
+    restart: "no"
