@@ -4,6 +4,8 @@ An automated tool for renewing Xserver's free VPS service to prevent expiration,
 
 This project is based on [fa0311/xserver-auto-renew](https://github.com/fa0311/xserver-auto-renew).
 
+> **Note:** We attempted to test the functionality, but new registrations have ended and we could not verify the operation. Please create an Issue if you encounter any problems.
+
 ## Overview
 
 This TypeScript application automatically renews your Xserver free VPS service by simulating the manual renewal process through web scraping. It uses browser cookies to authenticate and perform the renewal operation, helping you maintain your free VPS without manual intervention.
