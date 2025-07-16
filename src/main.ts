@@ -54,7 +54,7 @@ async function main(): Promise<void> {
 	const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'];
 
 	const browser = await puppeteer.launch({
-		headless: false,
+		headless: true,
 		defaultViewport: { width: 1080, height: 1024 },
 		args,
 	});
