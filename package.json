@@ -17,6 +17,7 @@
 	"author": "",
 	"license": "MIT",
 	"dependencies": {
+		"@google/genai": "^1.9.0",
 		"axios": "^1.6.0",
 		"dotenv": "^16.3.0",
 		"form-data": "^4.0.3",

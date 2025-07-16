@@ -3,6 +3,44 @@ import puppeteer from 'puppeteer';
 import { setTimeout } from 'node:timers/promises';
 import { Settings, LoginSettings } from './settings';
 import { DiscordWebhook } from './discord';
+import { GoogleGenAI } from '@google/genai';
+
+async function solveCaptcha(imageData: string, geminiApiKey: string): Promise<string> {
+	const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+
+	// Extract mime type and base64 data from data URL
+	const mimeType = imageData.split(',')[0].split(':')[1].split(';')[0];
+	const base64Data = imageData.split(',')[1];
+
+	const prompt = `Convert the Japanese characters in the image to numbers and output only the numbers.
+The length of the numbers is 6 characters.`;
+
+	const result = await ai.models.generateContent({
+		model: 'gemini-2.5-pro',
+		contents: [
+			prompt,
+			{
+				inlineData: {
+					data: base64Data,
+					mimeType: mimeType,
+				},
+			},
+		],
+	});
+
+	const text = result.text;
+
+	if (!text) {
+		throw new Error('Could not generate text from CAPTCHA');
+	}
+
+	const numberMatch = text.match(/\d{6}/);
+	if (numberMatch) {
+		return numberMatch[0];
+	} else {
+		throw new Error('Could not extract 6-digit number from CAPTCHA');
+	}
+}
 
 async function main(): Promise<void> {
 	const env = new Settings();
@@ -14,7 +52,7 @@ async function main(): Promise<void> {
 	}
 
 	const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'];
-	
+
 	const browser = await puppeteer.launch({
 		headless: false,
 		defaultViewport: { width: 1080, height: 1024 },
@@ -31,8 +69,10 @@ async function main(): Promise<void> {
 		}
 
 		// Login process
-		await page.goto('https://secure.xserver.ne.jp/xapanel/login/xvps/', { waitUntil: 'networkidle2' });
-		
+		await page.goto('https://secure.xserver.ne.jp/xapanel/login/xvps/', {
+			waitUntil: 'networkidle2',
+		});
+
 		await page.locator('#memberid').fill(loginEnv.username);
 		await page.locator('#user_password').fill(loginEnv.password);
 		await page.locator('text=ログインする').click();
@@ -42,7 +82,7 @@ async function main(): Promise<void> {
 
 		// Navigate to VPS detail page
 		await page.locator('a[href^="/xapanel/xvps/server/detail?id="]').click();
-		
+
 		// Start renewal process
 		await page.locator('text=更新する').click();
 		await page.locator('text=引き続き無料VPSの利用を継続する').click();
@@ -50,17 +90,8 @@ async function main(): Promise<void> {
 
 		// Handle CAPTCHA
 		const captchaImg = await page.$eval('img[src^="data:"]', (img: any) => img.src);
-		let captchaCode = '';
-		
-		if (env.captcha_api_url) {
-			captchaCode = await fetch(env.captcha_api_url, { 
-				method: 'POST', 
-				body: captchaImg 
-			}).then(r => r.text());
-		} else {
-			throw new Error('CAPTCHA_API_URL is not configured');
-		}
-		
+		const captchaCode = await solveCaptcha(captchaImg, env.gemini_api_key);
+
 		await page.locator('[placeholder="上の画像の数字を入力"]').fill(captchaCode);
 		await page.locator('text=無料VPSの利用を継続する').click();
 
