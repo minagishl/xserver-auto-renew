@@ -1,28 +1,33 @@
 {
-  "name": "xserver-auto-renew",
-  "version": "1.0.0",
-  "description": "An automated tool for renewing Xserver's free VPS service to prevent expiration",
-  "main": "dist/main.js",
-  "scripts": {
-    "build": "tsc",
-    "start": "pnpm run build && pnpm run login && pnpm run renew",
-    "login": "pnpm run build && node dist/login.js",
-    "renew": "pnpm run build && node dist/main.js",
-    "dev": "ts-node src/main.ts",
-    "dev:login": "ts-node src/login.ts"
-  },
-  "keywords": ["xserver", "vps", "auto-renew", "automation"],
-  "author": "",
-  "license": "MIT",
-  "dependencies": {
-    "axios": "^1.6.0",
-    "dotenv": "^16.3.0",
-    "puppeteer": "^21.0.0",
-    "zod": "^3.22.0"
-  },
-  "devDependencies": {
-    "@types/node": "^20.0.0",
-    "ts-node": "^10.9.0",
-    "typescript": "^5.0.0"
-  }
+	"name": "xserver-auto-renew",
+	"version": "1.0.0",
+	"description": "An automated tool for renewing Xserver's free VPS service to prevent expiration",
+	"main": "dist/main.js",
+	"scripts": {
+		"build": "tsc",
+		"start": "pnpm run build && node dist/login.js && node dist/main.js",
+		"login": "pnpm run build && node dist/login.js",
+		"renew": "pnpm run build && node dist/main.js",
+		"dev": "ts-node src/main.ts",
+		"dev:login": "ts-node src/login.ts"
+	},
+	"keywords": [
+		"xserver",
+		"vps",
+		"auto-renew",
+		"automation"
+	],
+	"author": "",
+	"license": "MIT",
+	"dependencies": {
+		"axios": "^1.6.0",
+		"dotenv": "^16.3.0",
+		"puppeteer": "^21.0.0",
+		"zod": "^3.22.0"
+	},
+	"devDependencies": {
+		"@types/node": "^20.0.0",
+		"ts-node": "^10.9.0",
+		"typescript": "^5.0.0"
+	}
 }
