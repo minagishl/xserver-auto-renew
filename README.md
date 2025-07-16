@@ -41,33 +41,41 @@ pnpm install
 ID_VPS=YOUR_VPS_ID_HERE
 USERNAME=YOUR_USERNAME_OR_EMAIL_HERE
 PASSWORD=YOUR_PASSWORD_HERE
+GEMINI_API_KEY=YOUR_GEMINI_API_KEY_HERE
+DISCORD_WEBHOOK_URL=YOUR_DISCORD_WEBHOOK_URL_HERE  # Optional
 ```
 
 ## Usage
 
-### Step 1: Generate Cookies (First Time Setup)
+### Local Development
 
-Generate authentication cookies using the automated login
-
-```bash
-pnpm run login
-```
-
-### Step 2: Run the Renewal Script
-
-Run the renewal script
-
-```bash
-pnpm run renew
-```
-
-### Full Automation
-
-You can run both steps automatically
+Run the renewal script locally:
 
 ```bash
 pnpm start
 ```
+
+### GitHub Actions (Recommended)
+
+This project includes GitHub Actions for automated execution:
+
+1. **Automatic Daily Renewal**: Runs every day at 9:00 AM JST
+2. **Manual Execution**: Can be triggered manually via GitHub Actions UI
+
+#### Setup GitHub Actions
+
+1. Go to your repository's Settings → Secrets and variables → Actions
+2. Add the following secrets:
+   - `ID_VPS`: Your VPS ID from Xserver
+   - `USERNAME`: Your Xserver account username
+   - `PASSWORD`: Your Xserver account password
+   - `GEMINI_API_KEY`: Your Google Gemini API key
+   - `DISCORD_WEBHOOK_URL`: (Optional) Discord webhook URL for notifications
+
+3. The workflow will automatically run daily, or you can trigger it manually:
+   - Go to Actions tab in your repository
+   - Select "Auto Renew Xserver VPS" workflow
+   - Click "Run workflow"
 
 ## Available Scripts
 
@@ -85,8 +93,10 @@ pnpm start
 Create a `.env` file with the following variables
 
 - `ID_VPS`: Your VPS ID from Xserver (required)
-- `USERNAME`: Your Xserver account username (required for automatic login)
-- `PASSWORD`: Your Xserver account password (required for automatic login)
+- `USERNAME`: Your Xserver account username (required)
+- `PASSWORD`: Your Xserver account password (required)
+- `GEMINI_API_KEY`: Your Google Gemini API key (required)
+- `DISCORD_WEBHOOK_URL`: Discord webhook URL for notifications (optional)
 
 ### File Structure
 
