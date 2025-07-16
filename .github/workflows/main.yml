@@ -20,6 +20,9 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Install system dependencies
+        run: sudo apt-get -qq update && sudo apt-get -yqq install --no-install-recommends fonts-noto-cjk
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v2
         with:
@@ -27,9 +30,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
-
-      - name: Install Chrome browser
-        run: npx puppeteer browsers install chrome
 
       - name: Build project
         run: pnpm run build
