@@ -1,110 +1,100 @@
 import fs from 'fs/promises';
-import axios, { AxiosRequestConfig } from 'axios';
-import { Settings } from './settings';
+import puppeteer from 'puppeteer';
+import { setTimeout } from 'node:timers/promises';
+import { Settings, LoginSettings } from './settings';
 import { DiscordWebhook } from './discord';
-import type { Cookie, UserAgentHeaders, ChromeHeaders } from './types';
-
-async function getUserAgent(): Promise<UserAgentHeaders> {
-	const response = await axios.get<ChromeHeaders>(
-		'https://raw.githubusercontent.com/fa0311/latest-user-agent/main/header.json'
-	);
-
-	const headers = { ...response.data.chrome };
-
-	return {
-		...headers,
-		host: null,
-		connection: null,
-		'accept-encoding': null,
-		'accept-language': 'ja',
-	};
-}
-
-async function setCookies(cookies: Cookie[]): Promise<string> {
-	return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ');
-}
 
 async function main(): Promise<void> {
 	const env = new Settings();
+	const loginEnv = new LoginSettings();
 
 	let discord: DiscordWebhook | null = null;
 	if (env.discord_webhook_url) {
 		discord = new DiscordWebhook(env.discord_webhook_url);
 	}
 
-	const userAgent = await getUserAgent();
+	const args = ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'];
+	
+	const browser = await puppeteer.launch({
+		headless: false,
+		defaultViewport: { width: 1080, height: 1024 },
+		args,
+	});
 
-	let cookiesData: string;
 	try {
-		cookiesData = await fs.readFile('cookies.json', 'utf-8');
-	} catch {
-		throw new Error('cookies.json not found. Please run "pnpm run login" first.');
-	}
+		const [page] = await browser.pages();
 
-	const cookies: Cookie[] = JSON.parse(cookiesData);
-	const cookieString = await setCookies(cookies);
-
-	const axiosConfig: AxiosRequestConfig = {
-		headers: {
-			...userAgent,
-			Cookie: cookieString,
-		},
-	};
-
-	const response1 = await axios.get(
-		'https://secure.xserver.ne.jp/xapanel/xvps/server/freevps/extend/index',
-		{
-			...axiosConfig,
-			params: {
-				id_vps: env.id_vps,
-			},
-		}
-	);
-
-	const uniqidPattern = /<input type="hidden" name="uniqid" value="([^"]+)" \/>/;
-	const match = response1.data.match(uniqidPattern);
-
-	if (!match) {
-		throw new Error('Could not find uniqid in response');
-	}
-
-	const uniqid = match[1];
-
-	const formData = new URLSearchParams();
-	formData.append('uniqid', uniqid);
-	formData.append('ethna_csrf', '');
-	formData.append('id_vps', env.id_vps);
-
-	const response2 = await axios.post(
-		'https://secure.xserver.ne.jp/xapanel/xvps/server/freevps/extend/do',
-		formData,
-		{
-			...axiosConfig,
-			headers: {
-				...axiosConfig.headers,
-				'Content-Type': 'application/x-www-form-urlencoded',
-			},
-		}
-	);
-
-	if (response2.data.includes('利用期限の更新手続きが完了しました。')) {
-		console.log('Done!');
+		let recordingPath: string | null = null;
 		if (discord) {
-			await discord.sendMessage('Xserver VPS renewal completed successfully!');
+			recordingPath = `recording_${Date.now()}.webm`;
+			await page.screencast({ path: recordingPath as `${string}.webm` });
 		}
-	} else if (response2.data.includes('利用期限の1日前から更新手続きが可能です。')) {
-		console.log('Failed, please try again a day before.');
-		if (discord) {
-			await discord.sendMessage(
-				'Xserver VPS renewal failed: Please try again a day before expiration.'
-			);
+
+		// Login process
+		await page.goto('https://secure.xserver.ne.jp/xapanel/login/xvps/', { waitUntil: 'networkidle2' });
+		
+		await page.locator('#memberid').fill(loginEnv.username);
+		await page.locator('#user_password').fill(loginEnv.password);
+		await page.locator('text=ログインする').click();
+		await page.waitForNavigation({ waitUntil: 'networkidle2' });
+
+		console.log('Login successful!');
+
+		// Navigate to VPS detail page
+		await page.locator('a[href^="/xapanel/xvps/server/detail?id="]').click();
+		
+		// Start renewal process
+		await page.locator('text=更新する').click();
+		await page.locator('text=引き続き無料VPSの利用を継続する').click();
+		await page.waitForNavigation({ waitUntil: 'networkidle2' });
+
+		// Handle CAPTCHA
+		const captchaImg = await page.$eval('img[src^="data:"]', (img: any) => img.src);
+		let captchaCode = '';
+		
+		if (env.captcha_api_url) {
+			captchaCode = await fetch(env.captcha_api_url, { 
+				method: 'POST', 
+				body: captchaImg 
+			}).then(r => r.text());
+		} else {
+			throw new Error('CAPTCHA_API_URL is not configured');
 		}
-	} else {
-		const error = 'Failed to renew VPS';
-		if (discord) {
-			await discord.sendMessage(`Xserver VPS renewal failed: ${error}`);
+		
+		await page.locator('[placeholder="上の画像の数字を入力"]').fill(captchaCode);
+		await page.locator('text=無料VPSの利用を継続する').click();
+
+		// Wait for result
+		await setTimeout(3000);
+		const pageContent = await page.content();
+
+		if (pageContent.includes('利用期限の更新手続きが完了しました。')) {
+			console.log('Done!');
+			if (discord) {
+				await discord.sendMessage('Xserver VPS renewal completed successfully!');
+			}
+		} else if (pageContent.includes('利用期限の1日前から更新手続きが可能です。')) {
+			console.log('Failed, please try again a day before.');
+			if (discord) {
+				await discord.sendMessage(
+					'Xserver VPS renewal failed: Please try again a day before expiration.'
+				);
+			}
+		} else {
+			const error = 'Failed to renew VPS';
+			if (discord) {
+				await discord.sendMessage(`Xserver VPS renewal failed: ${error}`);
+			}
+			throw new Error(error);
 		}
-		throw new Error(error);
+
+		if (discord && recordingPath) {
+			await discord.sendFile(recordingPath, 'Xserver VPS renewal process completed');
+			await fs.unlink(recordingPath);
+		}
+	} finally {
+		await setTimeout(5000);
+		await browser.close();
 	}
 }
 

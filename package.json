@@ -5,11 +5,8 @@
 	"main": "dist/main.js",
 	"scripts": {
 		"build": "tsc",
-		"start": "pnpm run build && node dist/login.js && node dist/main.js",
-		"login": "pnpm run build && node dist/login.js",
-		"renew": "pnpm run build && node dist/main.js",
-		"dev": "ts-node src/main.ts",
-		"dev:login": "ts-node src/login.ts"
+		"start": "pnpm run build && node dist/main.js",
+		"dev": "ts-node src/main.ts"
 	},
 	"keywords": [
 		"xserver",
