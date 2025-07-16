@@ -61,14 +61,13 @@ async function main(): Promise<void> {
 
 	const [page] = await browser.pages();
 	let recordingPath: string | null = null;
-	
+
 	if (discord) {
 		recordingPath = `recording_${Date.now()}.webm`;
 		await page.screencast({ path: recordingPath as `${string}.webm` });
 	}
 
 	try {
-
 		// Login process
 		await page.goto('https://secure.xserver.ne.jp/xapanel/login/xvps/', {
 			waitUntil: 'networkidle2',
@@ -96,17 +95,29 @@ async function main(): Promise<void> {
 		await page.locator('[placeholder="上の画像の数字を入力"]').fill(captchaCode);
 		await page.locator('text=無料VPSの利用を継続する').click();
 
-		// Wait for result
-		await setTimeout(3000);
+		// Wait for navigation and result page to fully render
+		await page.waitForNavigation({ waitUntil: 'networkidle2' });
+
+		// Wait for the result message to appear and page to fully render
+		try {
+			await page.waitForSelector('body', { timeout: 10000 });
+			await setTimeout(2000); // Additional wait for complete rendering
+		} catch {
+			console.log('Timeout waiting for result page, proceeding with content check');
+		}
+
 		const pageContent = await page.content();
 
 		if (pageContent.includes('利用期限の更新手続きが完了しました。')) {
 			console.log('Done!');
+			// Wait additional time to ensure completion message is fully displayed
+			await setTimeout(3000);
 			if (discord) {
 				await discord.sendMessage('Xserver VPS renewal completed successfully!');
 			}
 		} else if (pageContent.includes('利用期限の1日前から更新手続きが可能です。')) {
 			console.log('Failed, please try again a day before.');
+			await setTimeout(2000); // Wait for message to be fully displayed
 			if (discord) {
 				await discord.sendMessage(
 					'Xserver VPS renewal failed: Please try again a day before expiration.'
@@ -114,6 +125,7 @@ async function main(): Promise<void> {
 			}
 		} else {
 			const error = 'Failed to renew VPS';
+			await setTimeout(2000); // Wait for any error message to be displayed
 			if (discord) {
 				await discord.sendMessage(`Xserver VPS renewal failed: ${error}`);
 			}
@@ -127,7 +139,7 @@ async function main(): Promise<void> {
 		throw error;
 	} finally {
 		await setTimeout(5000);
-		
+
 		// Stop recording and send file regardless of success/failure
 		if (discord && recordingPath) {
 			try {
@@ -137,7 +149,7 @@ async function main(): Promise<void> {
 				console.error('Failed to upload recording:', uploadError);
 			}
 		}
-		
+
 		await browser.close();
 	}
 }
