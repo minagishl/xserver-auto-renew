@@ -59,14 +59,15 @@ async function main(): Promise<void> {
 		args,
 	});
 
-	try {
-		const [page] = await browser.pages();
+	const [page] = await browser.pages();
+	let recordingPath: string | null = null;
+	
+	if (discord) {
+		recordingPath = `recording_${Date.now()}.webm`;
+		await page.screencast({ path: recordingPath as `${string}.webm` });
+	}
 
-		let recordingPath: string | null = null;
-		if (discord) {
-			recordingPath = `recording_${Date.now()}.webm`;
-			await page.screencast({ path: recordingPath as `${string}.webm` });
-		}
+	try {
 
 		// Login process
 		await page.goto('https://secure.xserver.ne.jp/xapanel/login/xvps/', {
@@ -118,13 +119,25 @@ async function main(): Promise<void> {
 			}
 			throw new Error(error);
 		}
-
-		if (discord && recordingPath) {
-			await discord.sendFile(recordingPath, 'Xserver VPS renewal process completed');
-			await fs.unlink(recordingPath);
+	} catch (error) {
+		console.error('Error:', error);
+		if (discord) {
+			await discord.sendMessage(`Xserver VPS renewal encountered an error: ${error}`);
 		}
+		throw error;
 	} finally {
 		await setTimeout(5000);
+		
+		// Stop recording and send file regardless of success/failure
+		if (discord && recordingPath) {
+			try {
+				await discord.sendFile(recordingPath, 'Xserver VPS renewal process recording');
+				await fs.unlink(recordingPath);
+			} catch (uploadError) {
+				console.error('Failed to upload recording:', uploadError);
+			}
+		}
+		
 		await browser.close();
 	}
 }
