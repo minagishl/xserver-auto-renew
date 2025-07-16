@@ -5,6 +5,7 @@ config();
 
 const SettingsSchema = z.object({
   id_vps: z.string().min(1, 'ID_VPS is required'),
+  discord_webhook_url: z.string().url().optional(),
 });
 
 const LoginSettingsSchema = z.object({
@@ -14,14 +15,17 @@ const LoginSettingsSchema = z.object({
 
 export class Settings {
   public readonly id_vps: string;
+  public readonly discord_webhook_url?: string;
 
   constructor() {
     const env = {
       id_vps: process.env.ID_VPS,
+      discord_webhook_url: process.env.DISCORD_WEBHOOK_URL,
     };
 
     const validated = SettingsSchema.parse(env);
     this.id_vps = validated.id_vps;
+    this.discord_webhook_url = validated.discord_webhook_url;
   }
 }
 
