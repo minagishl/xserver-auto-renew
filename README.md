@@ -2,7 +2,7 @@
 
 An automated tool for renewing Xserver's free VPS service to prevent expiration, rewritten in TypeScript.
 
-This project is based on [fa0311/xserver-auto-renew](https://github.com/fa0311/xserver-auto-renew).
+This project is based on [fa0311/xserver-auto-renew](https://github.com/fa0311/xserver-auto-renew) and [GitHub30/extend-vps-exp](https://github.com/GitHub30/extend-vps-exp).
 
 > **Note:** We attempted to test the functionality, but new registrations have ended and we could not verify the operation. Please create an Issue if you encounter any problems.
 
