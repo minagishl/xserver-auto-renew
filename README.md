@@ -47,35 +47,97 @@ DISCORD_WEBHOOK_URL=YOUR_DISCORD_WEBHOOK_URL_HERE  # Optional
 
 ## Usage
 
-### Local Development
+There are three main ways to use this tool:
 
-Run the renewal script locally:
+### 1. Fork Repository + GitHub Actions (Recommended)
+
+This is the easiest way to get started. GitHub Actions will automatically run the renewal process.
+
+1. **Fork this repository** to your GitHub account
+2. **Enable GitHub Actions** in your forked repository:
+   - Go to the "Actions" tab in your repository
+   - Click "I understand my workflows, go ahead and enable them"
+3. **Configure secrets** in your repository:
+   - Go to Settings → Secrets and variables → Actions
+   - Add the following secrets:
+     - `ID_VPS`: Your VPS ID from Xserver
+     - `USERNAME`: Your Xserver account username
+     - `PASSWORD`: Your Xserver account password
+     - `GEMINI_API_KEY`: Your Google Gemini API key
+     - `DISCORD_WEBHOOK_URL`: (Optional) Discord webhook URL for notifications
+4. **Automatic execution**: The workflow will run daily at 9:00 AM JST
+5. **Manual execution**: You can also trigger it manually from the Actions tab
+
+### 2. Docker Self-Hosting
+
+Run the application on your own server using Docker with automated scheduling.
+
+#### Using Docker Compose (Recommended)
+
+1. **Clone the repository**:
+
+   ```bash
+   git clone https://github.com/minagishl/xserver-auto-renew.git
+   cd xserver-auto-renew
+   ```
+
+2. **Create environment file**:
+
+   ```bash
+   cp .env.example .env
+   # Edit .env with your credentials
+   ```
+
+3. **Run with Docker Compose**:
+   ```bash
+   docker-compose up -d
+   ```
+
+#### Manual Docker Setup
+
+1. **Build the Docker image**:
+
+   ```bash
+   docker build -t xserver-auto-renew .
+   ```
+
+2. **Run the container**:
+   ```bash
+   docker run --rm \
+     -e ID_VPS="your_vps_id" \
+     -e USERNAME="your_username" \
+     -e PASSWORD="your_password" \
+     -e GEMINI_API_KEY="your_gemini_api_key" \
+     -e DISCORD_WEBHOOK_URL="your_discord_webhook_url" \
+     xserver-auto-renew
+   ```
+
+#### Setting up Cron for Automated Execution
+
+Add a cron job to run the Docker container daily:
 
 ```bash
-pnpm start
+# Edit crontab
+crontab -e
+
+# Add this line to run daily at 9:00 AM JST (adjust timezone as needed)
+0 9 * * * docker run --rm -e ID_VPS="your_vps_id" -e USERNAME="your_username" -e PASSWORD="your_password" -e GEMINI_API_KEY="your_gemini_api_key" -e DISCORD_WEBHOOK_URL="your_discord_webhook_url" xserver-auto-renew
 ```
 
-### GitHub Actions (Recommended)
+### 3. Local Development
 
-This project includes GitHub Actions for automated execution:
+Run the renewal script locally for testing and development:
 
-1. **Automatic Daily Renewal**: Runs every day at 9:00 AM JST
-2. **Manual Execution**: Can be triggered manually via GitHub Actions UI
+```bash
+# Install dependencies
+pnpm install
 
-#### Setup GitHub Actions
+# Create .env file with your credentials
+cp .env.example .env
 
-1. Go to your repository's Settings → Secrets and variables → Actions
-2. Add the following secrets:
-   - `ID_VPS`: Your VPS ID from Xserver
-   - `USERNAME`: Your Xserver account username
-   - `PASSWORD`: Your Xserver account password
-   - `GEMINI_API_KEY`: Your Google Gemini API key
-   - `DISCORD_WEBHOOK_URL`: (Optional) Discord webhook URL for notifications
-
-3. The workflow will automatically run daily, or you can trigger it manually:
-   - Go to Actions tab in your repository
-   - Select "Auto Renew Xserver VPS" workflow
-   - Click "Run workflow"
+# Run the script
+pnpm start
+```
 
 ## Available Scripts
 
