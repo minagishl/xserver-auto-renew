@@ -8,7 +8,8 @@ RUN apk add --no-cache \
     freetype-dev \
     harfbuzz \
     ca-certificates \
-    ttf-freefont
+    ttf-freefont \
+    ffmpeg
 
 # Tell Puppeteer to skip installing Chrome since we've already installed it
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
