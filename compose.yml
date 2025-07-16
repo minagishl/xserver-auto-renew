@@ -1,4 +1,5 @@
 services:
+  # Main service for one-time execution
   xserver-auto-renew:
     build: .
     container_name: xserver-auto-renew
@@ -6,32 +7,30 @@ services:
       - ID_VPS=${ID_VPS}
       - USERNAME=${USERNAME}
       - PASSWORD=${PASSWORD}
-    volumes:
-      # Mount cookies.json to persist login session
-      - ./cookies.json:/app/cookies.json
-      # Mount .env file for configuration
-      - ./.env:/app/.env:ro
-    # Remove the default command to allow manual execution
-    # Use: docker compose run --rm xserver-auto-renew pnpm run login
-    # Use: docker compose run --rm xserver-auto-renew pnpm run renew
-    # Use: docker compose run --rm xserver-auto-renew pnpm start
-    command: ["tail", "-f", "/dev/null"]
-    profiles:
-      - manual
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+    # Run once and exit
+    command: ["pnpm", "start"]
+    restart: "no"
 
-  # Service for scheduled runs (optional)
-  xserver-auto-renew-cron:
+  # Service for scheduled runs with cron
+  xserver-auto-renew-scheduler:
     build: .
-    container_name: xserver-auto-renew-cron
+    container_name: xserver-auto-renew-scheduler
     environment:
       - ID_VPS=${ID_VPS}
       - USERNAME=${USERNAME}
       - PASSWORD=${PASSWORD}
-    volumes:
-      - ./cookies.json:/app/cookies.json
-      - ./.env:/app/.env:ro
-    # Run the renewal process
-    command: ["pnpm", "start"]
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+    # Install and run cron
+    command: >
+      sh -c "
+        apk add --no-cache dcron &&
+        echo '0 9 * * * cd /app && pnpm start' > /tmp/crontab &&
+        crontab /tmp/crontab &&
+        crond -f -l 2
+      "
     profiles:
-      - cron
-    restart: "no"
+      - scheduler
+    restart: unless-stopped
