@@ -54,6 +54,7 @@ async function main(): Promise<void> {
 	const args = ['--no-sandbox', '--disable-setuid-sandbox'];
 
 	const browser = await puppeteer.launch({
+		headless: 'new',
 		defaultViewport: { width: 1080, height: 1024 },
 		args,
 	});
