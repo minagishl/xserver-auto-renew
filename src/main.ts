@@ -11,6 +11,7 @@ import {
 	processImageWithJimpWhiteBackground,
 	processImageWithJimpBlackBackground,
 } from './image';
+import Jimp from 'jimp';
 
 function generateTOTPCode(secret: string): string {
 	return speakeasy.totp({
@@ -41,13 +42,33 @@ async function solveCaptchaWithMultipleMethods(
 		},
 		{
 			name: 'jimp-white-background',
-			image: processImageWithJimpWhiteBackground(replaceBlackThicken),
+			image: await processImageWithJimpWhiteBackground(replaceBlackThicken),
 		},
 		{
 			name: 'jimp-black-background',
-			image: processImageWithJimpBlackBackground(replaceBlackThicken),
+			image: await processImageWithJimpBlackBackground(replaceBlackThicken),
 		},
 	];
+
+	// Vertically concatenate original and processed images and send to Discord
+	const jimpImages = await Promise.all(images.map(({ image }) => Jimp.read(image)));
+	const width = Math.max(...jimpImages.map((img) => img.getWidth()));
+	const totalHeight = jimpImages.reduce((sum, img) => sum + img.getHeight(), 0);
+	const combinedImage = new Jimp(width, totalHeight, 0xffffffff);
+	let yOffset = 0;
+	for (const jimg of jimpImages) {
+		combinedImage.composite(jimg, 0, yOffset);
+		yOffset += jimg.getHeight();
+	}
+	const combinedBuffer = await combinedImage.getBufferAsync(Jimp.MIME_PNG);
+	const debugPath = `debug_captcha_${Date.now()}.png`;
+	await fs.writeFile(debugPath, combinedBuffer);
+	const settings = new Settings();
+	if (settings.discord_webhook_url) {
+		const debugDiscord = new DiscordWebhook(settings.discord_webhook_url);
+		await debugDiscord.sendFile(debugPath, 'Concatenated CAPTCHA debug image');
+		await fs.unlink(debugPath);
+	}
 
 	// Send all processed images to Gemini simultaneously
 	const contents = [
