@@ -4,41 +4,210 @@ import { setTimeout } from 'node:timers/promises';
 import { Settings, LoginSettings } from './settings';
 import { DiscordWebhook } from './discord';
 import { GoogleGenAI } from '@google/genai';
+import Jimp from 'jimp';
+import sharp from 'sharp';
 
-async function solveCaptcha(imageData: string, geminiApiKey: string): Promise<string> {
+async function solveCaptchaWithMultipleMethods(
+	imageData: string,
+	geminiApiKey: string,
+	discord: any
+): Promise<string> {
 	const ai = new GoogleGenAI({ apiKey: geminiApiKey });
 
-	// Extract mime type and base64 data from data URL
-	const mimeType = imageData.split(',')[0].split(':')[1].split(';')[0];
-	const base64Data = imageData.split(',')[1];
-
-	const prompt = `Convert the Japanese characters in the image to numbers and output only the numbers.
-The length of the numbers is 6 characters.`;
-
-	const result = await ai.models.generateContent({
-		model: 'gemini-2.5-pro',
-		contents: [
-			prompt,
-			{
-				inlineData: {
-					data: base64Data,
-					mimeType: mimeType,
-				},
-			},
-		],
-	});
-
-	const text = result.text;
-
-	if (!text) {
-		throw new Error('Could not generate text from CAPTCHA');
+	// Share original image to Discord
+	if (discord) {
+		try {
+			const base64Data = imageData.split(',')[1];
+			const imageBuffer = Buffer.from(base64Data, 'base64');
+			const timestamp = Date.now();
+			const originalPath = `captcha_original_${timestamp}.png`;
+			await fs.writeFile(originalPath, imageBuffer);
+			await discord.sendFile(originalPath, 'Original CAPTCHA image');
+			await fs.unlink(originalPath);
+		} catch (uploadError) {
+			console.error('Failed to upload CAPTCHA image to Discord:', uploadError);
+		}
 	}
 
-	const numberMatch = text.match(/\d{6}/);
-	if (numberMatch) {
-		return numberMatch[0];
+	// Extract base64 data from data URL
+	const base64Data = imageData.split(',')[1];
+	const imageBuffer = Buffer.from(base64Data, 'base64');
+
+	// Try multiple preprocessing approaches
+	const preprocessingMethods = [
+		{
+			name: 'original',
+			process: async (buffer: Buffer) => {
+				return buffer;
+			},
+		},
+		{
+			name: 'jimp-white-background',
+			process: async (buffer: Buffer) => {
+				const image = await Jimp.read(buffer);
+				const width = image.bitmap.width;
+				const height = image.bitmap.height;
+
+				// Make everything white background
+				image.scan(0, 0, width, height, function (_x: any, _y: any, idx: any) {
+					const red = (this as any).bitmap.data[idx + 0];
+					const green = (this as any).bitmap.data[idx + 1];
+					const blue = (this as any).bitmap.data[idx + 2];
+
+					const brightness = (red + green + blue) / 3;
+
+					if (brightness < 150) {
+						// Darker pixels (text and lines) -> black
+						(this as any).bitmap.data[idx + 0] = 0;
+						(this as any).bitmap.data[idx + 1] = 0;
+						(this as any).bitmap.data[idx + 2] = 0;
+					} else {
+						// Light pixels (background) -> white
+						(this as any).bitmap.data[idx + 0] = 255;
+						(this as any).bitmap.data[idx + 1] = 255;
+						(this as any).bitmap.data[idx + 2] = 255;
+					}
+				});
+
+				return image
+					.resize(300, 90)
+					.contrast(0.3)
+					.greyscale()
+					.normalize()
+					.getBufferAsync(Jimp.MIME_PNG);
+			},
+		},
+		{
+			name: 'jimp-black-background',
+			process: async (buffer: Buffer) => {
+				const image = await Jimp.read(buffer);
+				const width = image.bitmap.width;
+				const height = image.bitmap.height;
+
+				// First process like white background
+				image.scan(0, 0, width, height, function (_x: any, _y: any, idx: any) {
+					const red = (this as any).bitmap.data[idx + 0];
+					const green = (this as any).bitmap.data[idx + 1];
+					const blue = (this as any).bitmap.data[idx + 2];
+
+					const brightness = (red + green + blue) / 3;
+
+					if (brightness < 150) {
+						// Darker pixels (text and lines) -> black
+						(this as any).bitmap.data[idx + 0] = 0;
+						(this as any).bitmap.data[idx + 1] = 0;
+						(this as any).bitmap.data[idx + 2] = 0;
+					} else {
+						// Light pixels (background) -> white
+						(this as any).bitmap.data[idx + 0] = 255;
+						(this as any).bitmap.data[idx + 1] = 255;
+						(this as any).bitmap.data[idx + 2] = 255;
+					}
+				});
+
+				// Apply processing
+				const processedImage = image.resize(300, 90).contrast(0.3).greyscale().normalize();
+
+				// Invert colors (white <-> black)
+				return processedImage.invert().getBufferAsync(Jimp.MIME_PNG);
+			},
+		},
+		{
+			name: 'sharp-high-contrast',
+			process: async (buffer: Buffer) => {
+				return sharp(buffer).resize(300, 90).normalize().threshold(150).png().toBuffer();
+			},
+		},
+		{
+			name: 'edge-detection',
+			process: async (buffer: Buffer) => {
+				return sharp(buffer)
+					.resize(300, 90)
+					.convolve({
+						width: 3,
+						height: 3,
+						kernel: [-1, -1, -1, -1, 8, -1, -1, -1, -1],
+					})
+					.negate()
+					.threshold(200)
+					.png()
+					.toBuffer();
+			},
+		},
+	];
+
+	let bestResult = null;
+	let maxConfidence = 0;
+	let bestMethod = '';
+
+	for (const method of preprocessingMethods) {
+		try {
+			const processedBuffer = await method.process(imageBuffer);
+			const processedBase64 = processedBuffer.toString('base64');
+
+			// Share processed image to Discord
+			if (discord) {
+				try {
+					const timestamp = Date.now();
+					const processedPath = `captcha_${method.name}_${timestamp}.png`;
+					await fs.writeFile(processedPath, processedBuffer);
+					await discord.sendFile(processedPath, `Processed CAPTCHA image (${method.name})`);
+					await fs.unlink(processedPath);
+				} catch (uploadError) {
+					console.error(`Failed to upload processed image (${method.name}):`, uploadError);
+				}
+			}
+
+			const prompt = `Convert the Japanese characters in this CAPTCHA image to numbers.
+Output ONLY the 6-digit number, nothing else.
+If you see multiple possible interpretations, choose the most likely one.
+The image has been processed to remove interfering lines, focus on the clear numbers.`;
+
+			const result = await ai.models.generateContent({
+				model: 'gemini-2.5-flash',
+				contents: [
+					prompt,
+					{
+						inlineData: {
+							data: processedBase64,
+							mimeType: 'image/png',
+						},
+					},
+				],
+			});
+
+			const text = result.text;
+
+			if (!text) {
+				console.log(`Method ${method.name} failed: No text response`);
+				continue;
+			}
+
+			const numberMatch = text.trim().match(/\d{6}/);
+
+			if (numberMatch) {
+				// Simple confidence check based on response clarity
+				const confidence = text.trim() === numberMatch[0] ? 1 : 0.8;
+				console.log(`Method ${method.name} result: ${numberMatch[0]} (confidence: ${confidence})`);
+
+				if (confidence > maxConfidence) {
+					maxConfidence = confidence;
+					bestResult = numberMatch[0];
+					bestMethod = method.name;
+				}
+			} else {
+				console.log(`Method ${method.name} failed: Could not extract 6-digit number from: ${text}`);
+			}
+		} catch (error) {
+			console.error(`Method ${method.name} failed:`, error);
+		}
+	}
+
+	if (bestResult) {
+		console.log(`Best result: ${bestResult} (method: ${bestMethod}, confidence: ${maxConfidence})`);
+		return bestResult;
 	} else {
-		throw new Error('Could not extract 6-digit number from CAPTCHA');
+		throw new Error('Could not extract 6-digit number from CAPTCHA with any method');
 	}
 }
 
@@ -90,7 +259,11 @@ async function main(): Promise<void> {
 
 		// Handle CAPTCHA
 		const captchaImg = await page.$eval('img[src^="data:"]', (img: any) => img.src);
-		const captchaCode = await solveCaptcha(captchaImg, env.gemini_api_key);
+		const captchaCode = await solveCaptchaWithMultipleMethods(
+			captchaImg,
+			env.gemini_api_key,
+			discord
+		);
 
 		await page.locator('[placeholder="上の画像の数字を入力"]').fill(captchaCode);
 		await page.locator('text=無料VPSの利用を継続する').click();

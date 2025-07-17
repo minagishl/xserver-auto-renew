@@ -5,3 +5,4 @@ cookies.json
 *.log
 .DS_Store
 *.tsbuildinfo
+tests/output/
