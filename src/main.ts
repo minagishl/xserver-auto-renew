@@ -146,78 +146,80 @@ async function solveCaptchaWithMultipleMethods(
 		},
 	];
 
-	let bestResult = null;
-	let maxConfidence = 0;
-	let bestMethod = '';
+	// Process all images simultaneously using Promise.all
+	const processedImages = await Promise.all(
+		preprocessingMethods.map(async (method) => {
+			try {
+				const processedBuffer = await method.process(imageBuffer);
+				const processedBase64 = processedBuffer.toString('base64');
 
-	for (const method of preprocessingMethods) {
-		try {
-			const processedBuffer = await method.process(imageBuffer);
-			const processedBase64 = processedBuffer.toString('base64');
-
-			// Share processed image to Discord
-			if (discord) {
-				try {
-					const timestamp = Date.now();
-					const processedPath = `captcha_${method.name}_${timestamp}.png`;
-					await fs.writeFile(processedPath, processedBuffer);
-					await discord.sendFile(processedPath, `Processed CAPTCHA image (${method.name})`);
-					await fs.unlink(processedPath);
-				} catch (uploadError) {
-					console.error(`Failed to upload processed image (${method.name}):`, uploadError);
+				// Share processed image to Discord
+				if (discord) {
+					try {
+						const timestamp = Date.now();
+						const processedPath = `captcha_${method.name}_${timestamp}.png`;
+						await fs.writeFile(processedPath, processedBuffer);
+						await fs.unlink(processedPath);
+					} catch (uploadError) {
+						console.error(`Failed to upload processed image (${method.name}):`, uploadError);
+					}
 				}
-			}
 
-			const prompt = `Convert the Japanese characters in this CAPTCHA image to numbers.
+				return {
+					name: method.name,
+					base64: processedBase64,
+				};
+			} catch (error) {
+				console.error(`Method ${method.name} failed:`, error);
+				return null;
+			}
+		})
+	);
+
+	// Filter out failed processing attempts
+	const validProcessedImages = processedImages.filter((img) => img !== null);
+
+	// Send all processed images to Gemini simultaneously
+	const contents = [
+		{
+			role: 'user',
+			parts: [
+				{
+					text: `Convert the Japanese characters in these CAPTCHA images to numbers.
+These are the same CAPTCHA image processed with different methods.
 Output ONLY the 6-digit number, nothing else.
 If you see multiple possible interpretations, choose the most likely one.
-The image has been processed to remove interfering lines, focus on the clear numbers.`;
-
-			const result = await ai.models.generateContent({
-				model: 'gemini-2.5-flash',
-				contents: [
-					prompt,
-					{
-						inlineData: {
-							data: processedBase64,
-							mimeType: 'image/png',
-						},
+The images have been processed to remove interfering lines, focus on the clear numbers.`,
+				},
+				...validProcessedImages.map((img) => ({
+					inlineData: {
+						data: img.base64,
+						mimeType: 'image/png',
 					},
-				],
-			});
+				})),
+			],
+		},
+	];
 
-			const text = result.text;
+	const result = await ai.models.generateContent({
+		model: 'gemini-2.5-pro',
+		contents,
+	});
 
-			if (!text) {
-				console.log(`Method ${method.name} failed: No text response`);
-				continue;
-			}
+	const text = result.text;
+	console.log('Gemini response:', text);
 
-			const numberMatch = text.trim().match(/\d{6}/);
-
-			if (numberMatch) {
-				// Simple confidence check based on response clarity
-				const confidence = text.trim() === numberMatch[0] ? 1 : 0.8;
-				console.log(`Method ${method.name} result: ${numberMatch[0]} (confidence: ${confidence})`);
-
-				if (confidence > maxConfidence) {
-					maxConfidence = confidence;
-					bestResult = numberMatch[0];
-					bestMethod = method.name;
-				}
-			} else {
-				console.log(`Method ${method.name} failed: Could not extract 6-digit number from: ${text}`);
-			}
-		} catch (error) {
-			console.error(`Method ${method.name} failed:`, error);
-		}
+	if (!text) {
+		throw new Error('No response from Gemini');
 	}
 
-	if (bestResult) {
-		console.log(`Best result: ${bestResult} (method: ${bestMethod}, confidence: ${maxConfidence})`);
-		return bestResult;
+	const numberMatch = text.trim().match(/\d{6}/);
+
+	if (numberMatch) {
+		console.log(`CAPTCHA solved: ${numberMatch[0]}`);
+		return numberMatch[0];
 	} else {
-		throw new Error('Could not extract 6-digit number from CAPTCHA with any method');
+		throw new Error(`Could not extract 6-digit number from: ${text}`);
 	}
 }
 
