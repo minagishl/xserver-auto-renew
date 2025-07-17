@@ -1,7 +1,10 @@
 import fs from 'fs/promises';
 import path from 'path';
-import Jimp from 'jimp';
-import sharp from 'sharp';
+import {
+	processImageReplaceBlackAndThicken,
+	processImageWithJimpWhiteBackground,
+	processImageWithJimpBlackBackground,
+} from '../src/image';
 
 // Mock the Gemini API for testing
 class MockGeminiAPI {
@@ -10,8 +13,6 @@ class MockGeminiAPI {
 		default: '123456',
 		'jimp-white-background': '234567',
 		'jimp-black-background': '345678',
-		'sharp-high-contrast': '456789',
-		'edge-detection': '567890',
 	};
 
 	async generateContent(_params: any): Promise<{ text: string }> {
@@ -22,87 +23,6 @@ class MockGeminiAPI {
 		const mockResponse = this.responses['default'];
 		return { text: mockResponse };
 	}
-}
-
-// Image processing functions
-async function processImageWithJimpWhiteBackground(buffer: Buffer): Promise<Buffer> {
-	const image = await Jimp.read(buffer);
-	const width = image.bitmap.width;
-	const height = image.bitmap.height;
-
-	// Make everything white background
-	image.scan(0, 0, width, height, function (_x: any, _y: any, idx: any) {
-		const red = (this as any).bitmap.data[idx + 0];
-		const green = (this as any).bitmap.data[idx + 1];
-		const blue = (this as any).bitmap.data[idx + 2];
-
-		const brightness = (red + green + blue) / 3;
-
-		if (brightness < 150) {
-			// Darker pixels (text and lines) -> black
-			(this as any).bitmap.data[idx + 0] = 0;
-			(this as any).bitmap.data[idx + 1] = 0;
-			(this as any).bitmap.data[idx + 2] = 0;
-		} else {
-			// Light pixels (background) -> white
-			(this as any).bitmap.data[idx + 0] = 255;
-			(this as any).bitmap.data[idx + 1] = 255;
-			(this as any).bitmap.data[idx + 2] = 255;
-		}
-	});
-
-	return image.resize(300, 90).contrast(0.3).greyscale().normalize().getBufferAsync(Jimp.MIME_PNG);
-}
-
-async function processImageWithJimpBlackBackground(buffer: Buffer): Promise<Buffer> {
-	const image = await Jimp.read(buffer);
-	const width = image.bitmap.width;
-	const height = image.bitmap.height;
-
-	// First process like white background
-	image.scan(0, 0, width, height, function (_x: any, _y: any, idx: any) {
-		const red = (this as any).bitmap.data[idx + 0];
-		const green = (this as any).bitmap.data[idx + 1];
-		const blue = (this as any).bitmap.data[idx + 2];
-
-		const brightness = (red + green + blue) / 3;
-
-		if (brightness < 150) {
-			// Darker pixels (text and lines) -> black
-			(this as any).bitmap.data[idx + 0] = 0;
-			(this as any).bitmap.data[idx + 1] = 0;
-			(this as any).bitmap.data[idx + 2] = 0;
-		} else {
-			// Light pixels (background) -> white
-			(this as any).bitmap.data[idx + 0] = 255;
-			(this as any).bitmap.data[idx + 1] = 255;
-			(this as any).bitmap.data[idx + 2] = 255;
-		}
-	});
-
-	// Apply processing
-	const processedImage = image.resize(300, 90).contrast(0.3).greyscale().normalize();
-
-	// Invert colors (white <-> black)
-	return processedImage.invert().getBufferAsync(Jimp.MIME_PNG);
-}
-
-async function processImageWithSharpHighContrast(buffer: Buffer): Promise<Buffer> {
-	return sharp(buffer).resize(300, 90).normalize().threshold(150).png().toBuffer();
-}
-
-async function processImageWithSharpEdgeDetection(buffer: Buffer): Promise<Buffer> {
-	return sharp(buffer)
-		.resize(300, 90)
-		.convolve({
-			width: 3,
-			height: 3,
-			kernel: [-1, -1, -1, -1, 8, -1, -1, -1, -1],
-		})
-		.negate()
-		.threshold(200)
-		.png()
-		.toBuffer();
 }
 
 // Simplified version of solveCaptchaWithMultipleMethods for testing
@@ -133,14 +53,6 @@ async function solveCaptchaWithMultipleMethods(
 		{
 			name: 'jimp-black-background',
 			process: processImageWithJimpBlackBackground,
-		},
-		{
-			name: 'sharp-high-contrast',
-			process: processImageWithSharpHighContrast,
-		},
-		{
-			name: 'edge-detection',
-			process: processImageWithSharpEdgeDetection,
 		},
 	];
 
@@ -203,10 +115,6 @@ interface ProcessingResult {
 	jimpWhiteBackgroundTime: number;
 	jimpBlackBackgroundSize: number;
 	jimpBlackBackgroundTime: number;
-	sharpHighContrastSize: number;
-	sharpHighContrastTime: number;
-	edgeDetectionSize: number;
-	edgeDetectionTime: number;
 	success: boolean;
 	error?: string;
 }
@@ -272,18 +180,20 @@ async function runComprehensiveTest(): Promise<void> {
 					jimpWhiteBackgroundTime: 0,
 					jimpBlackBackgroundSize: 0,
 					jimpBlackBackgroundTime: 0,
-					sharpHighContrastSize: 0,
-					sharpHighContrastTime: 0,
-					edgeDetectionSize: 0,
-					edgeDetectionTime: 0,
 					success: true,
 				};
 
+				// Test Replace Black and Thicken
+				console.log('  Replace black and thicken...');
+				let startTime = Date.now();
+				const replaceBlackThicken = await processImageReplaceBlackAndThicken(imageBuffer);
+				let endTime = Date.now();
+
 				// Test Jimp white background
 				console.log('  Jimp white background...');
-				let startTime = Date.now();
-				const jimpWhiteBackground = await processImageWithJimpWhiteBackground(imageBuffer);
-				let endTime = Date.now();
+				startTime = Date.now();
+				const jimpWhiteBackground = await processImageWithJimpWhiteBackground(replaceBlackThicken);
+				endTime = Date.now();
 				processingResult.jimpWhiteBackgroundTime = endTime - startTime;
 				processingResult.jimpWhiteBackgroundSize = jimpWhiteBackground.length;
 
@@ -297,7 +207,7 @@ async function runComprehensiveTest(): Promise<void> {
 				// Test Jimp black background
 				console.log('  Jimp black background...');
 				startTime = Date.now();
-				const jimpBlackBackground = await processImageWithJimpBlackBackground(imageBuffer);
+				const jimpBlackBackground = await processImageWithJimpBlackBackground(replaceBlackThicken);
 				endTime = Date.now();
 				processingResult.jimpBlackBackgroundTime = endTime - startTime;
 				processingResult.jimpBlackBackgroundSize = jimpBlackBackground.length;
@@ -308,30 +218,6 @@ async function runComprehensiveTest(): Promise<void> {
 				);
 				await fs.writeFile(jimpBlackBackgroundPath, jimpBlackBackground);
 				console.log(`    Complete (${processingResult.jimpBlackBackgroundTime}ms)`);
-
-				// Test Sharp high contrast
-				console.log('  Sharp high contrast...');
-				startTime = Date.now();
-				const sharpHighContrast = await processImageWithSharpHighContrast(imageBuffer);
-				endTime = Date.now();
-				processingResult.sharpHighContrastTime = endTime - startTime;
-				processingResult.sharpHighContrastSize = sharpHighContrast.length;
-
-				const sharpHighContrastPath = path.join(outputDir, `${imageName}_sharp_high_contrast.png`);
-				await fs.writeFile(sharpHighContrastPath, sharpHighContrast);
-				console.log(`    Complete (${processingResult.sharpHighContrastTime}ms)`);
-
-				// Test Edge detection
-				console.log('  Sharp edge detection...');
-				startTime = Date.now();
-				const edgeDetection = await processImageWithSharpEdgeDetection(imageBuffer);
-				endTime = Date.now();
-				processingResult.edgeDetectionTime = endTime - startTime;
-				processingResult.edgeDetectionSize = edgeDetection.length;
-
-				const edgeDetectionPath = path.join(outputDir, `${imageName}_edge_detection.png`);
-				await fs.writeFile(edgeDetectionPath, edgeDetection);
-				console.log(`    Complete (${processingResult.edgeDetectionTime}ms)`);
 
 				processingResults.push(processingResult);
 
@@ -371,7 +257,7 @@ async function runComprehensiveTest(): Promise<void> {
 				console.log(`  ${imageFile} processing completed`);
 				console.log();
 			} catch (error) {
-				console.error(`  ❌ Error processing ${imageFile}:`, error);
+				console.error(`  Error processing ${imageFile}:`, error);
 				processingResults.push({
 					imageName,
 					originalSize: 0,
@@ -379,10 +265,6 @@ async function runComprehensiveTest(): Promise<void> {
 					jimpWhiteBackgroundTime: 0,
 					jimpBlackBackgroundSize: 0,
 					jimpBlackBackgroundTime: 0,
-					sharpHighContrastSize: 0,
-					sharpHighContrastTime: 0,
-					edgeDetectionSize: 0,
-					edgeDetectionTime: 0,
 					success: false,
 					error: error instanceof Error ? error.message : 'Unknown error',
 				});
@@ -397,7 +279,7 @@ async function runComprehensiveTest(): Promise<void> {
 		// Generate comprehensive report
 		await generateComprehensiveReport(processingResults, captchaResults, outputDir);
 	} catch (error) {
-		console.error('❌ Error reading images directory:', error);
+		console.error('Error reading images directory:', error);
 	}
 }
 
@@ -443,17 +325,9 @@ async function generateComprehensiveReport(
 		const avgJimpBlackTime =
 			successfulProcessing.reduce((sum, r) => sum + r.jimpBlackBackgroundTime, 0) /
 			successfulProcessing.length;
-		const avgSharpHighContrastTime =
-			successfulProcessing.reduce((sum, r) => sum + r.sharpHighContrastTime, 0) /
-			successfulProcessing.length;
-		const avgEdgeDetectionTime =
-			successfulProcessing.reduce((sum, r) => sum + r.edgeDetectionTime, 0) /
-			successfulProcessing.length;
 
 		console.log(`Jimp White Background: ${avgJimpWhiteTime.toFixed(1)}ms avg`);
 		console.log(`Jimp Black Background: ${avgJimpBlackTime.toFixed(1)}ms avg`);
-		console.log(`Sharp High Contrast: ${avgSharpHighContrastTime.toFixed(1)}ms avg`);
-		console.log(`Edge Detection: ${avgEdgeDetectionTime.toFixed(1)}ms avg`);
 		console.log();
 
 		console.log('File Size Analysis:');
@@ -469,19 +343,11 @@ async function generateComprehensiveReport(
 			jimpBlack:
 				successfulProcessing.reduce((sum, r) => sum + r.jimpBlackBackgroundSize, 0) /
 				successfulProcessing.length,
-			sharpHighContrast:
-				successfulProcessing.reduce((sum, r) => sum + r.sharpHighContrastSize, 0) /
-				successfulProcessing.length,
-			edgeDetection:
-				successfulProcessing.reduce((sum, r) => sum + r.edgeDetectionSize, 0) /
-				successfulProcessing.length,
 		};
 
 		console.log(`Original: ${(avgSizes.original / 1024).toFixed(1)}KB avg`);
 		console.log(`Jimp White Background: ${(avgSizes.jimpWhite / 1024).toFixed(1)}KB avg`);
 		console.log(`Jimp Black Background: ${(avgSizes.jimpBlack / 1024).toFixed(1)}KB avg`);
-		console.log(`Sharp High Contrast: ${(avgSizes.sharpHighContrast / 1024).toFixed(1)}KB avg`);
-		console.log(`Edge Detection: ${(avgSizes.edgeDetection / 1024).toFixed(1)}KB avg`);
 		console.log();
 	}
 
@@ -559,12 +425,6 @@ async function generateComprehensiveReport(
 								jimpBlackBackground:
 									successfulProcessing.reduce((sum, r) => sum + r.jimpBlackBackgroundTime, 0) /
 									successfulProcessing.length,
-								sharpHighContrast:
-									successfulProcessing.reduce((sum, r) => sum + r.sharpHighContrastTime, 0) /
-									successfulProcessing.length,
-								edgeDetection:
-									successfulProcessing.reduce((sum, r) => sum + r.edgeDetectionTime, 0) /
-									successfulProcessing.length,
 							},
 							averageFileSizes: {
 								original:
@@ -575,12 +435,6 @@ async function generateComprehensiveReport(
 									successfulProcessing.length,
 								jimpBlackBackground:
 									successfulProcessing.reduce((sum, r) => sum + r.jimpBlackBackgroundSize, 0) /
-									successfulProcessing.length,
-								sharpHighContrast:
-									successfulProcessing.reduce((sum, r) => sum + r.sharpHighContrastSize, 0) /
-									successfulProcessing.length,
-								edgeDetection:
-									successfulProcessing.reduce((sum, r) => sum + r.edgeDetectionSize, 0) /
 									successfulProcessing.length,
 							},
 					  }
@@ -612,8 +466,6 @@ async function generateComprehensiveReport(
 	console.log('  - {name}_original.png: Original image');
 	console.log('  - {name}_jimp_white_background.png: Jimp white background');
 	console.log('  - {name}_jimp_black_background.png: Jimp black background');
-	console.log('  - {name}_sharp_high_contrast.png: Sharp high contrast');
-	console.log('  - {name}_edge_detection.png: Sharp edge detection');
 	console.log('  - comprehensive-test-report.json: Detailed test results');
 	console.log();
 	console.log('Note: This test uses mock Gemini API responses.');
@@ -630,6 +482,4 @@ export {
 	solveCaptchaWithMultipleMethods,
 	processImageWithJimpWhiteBackground,
 	processImageWithJimpBlackBackground,
-	processImageWithSharpHighContrast,
-	processImageWithSharpEdgeDetection,
 };

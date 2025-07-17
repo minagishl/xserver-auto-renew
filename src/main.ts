@@ -4,10 +4,13 @@ import { setTimeout } from 'node:timers/promises';
 import { Settings, LoginSettings } from './settings';
 import { DiscordWebhook } from './discord';
 import { GoogleGenAI } from '@google/genai';
-import Jimp from 'jimp';
-import sharp from 'sharp';
 import * as speakeasy from 'speakeasy';
 import { PuppeteerScreenRecorder } from 'puppeteer-screen-recorder';
+import {
+	processImageReplaceBlackAndThicken,
+	processImageWithJimpWhiteBackground,
+	processImageWithJimpBlackBackground,
+} from './image';
 
 function generateTOTPCode(secret: string): string {
 	return speakeasy.totp({
@@ -20,165 +23,31 @@ function generateTOTPCode(secret: string): string {
 
 async function solveCaptchaWithMultipleMethods(
 	imageData: string,
-	geminiApiKey: string,
-	discord: any
+	geminiApiKey: string
 ): Promise<string> {
 	const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-
-	// Share original image to Discord
-	if (discord) {
-		try {
-			const base64Data = imageData.split(',')[1];
-			const imageBuffer = Buffer.from(base64Data, 'base64');
-			const timestamp = Date.now();
-			const originalPath = `captcha_original_${timestamp}.png`;
-			await fs.writeFile(originalPath, imageBuffer);
-			await discord.sendFile(originalPath, 'Original CAPTCHA image');
-			await fs.unlink(originalPath);
-		} catch (uploadError) {
-			console.error('Failed to upload CAPTCHA image to Discord:', uploadError);
-		}
-	}
 
 	// Extract base64 data from data URL
 	const base64Data = imageData.split(',')[1];
 	const imageBuffer = Buffer.from(base64Data, 'base64');
 
+	const replaceBlackThicken = await processImageReplaceBlackAndThicken(imageBuffer);
+
 	// Try multiple preprocessing approaches
-	const preprocessingMethods = [
+	const images = [
 		{
 			name: 'original',
-			process: async (buffer: Buffer) => {
-				return buffer;
-			},
+			image: imageBuffer,
 		},
 		{
 			name: 'jimp-white-background',
-			process: async (buffer: Buffer) => {
-				const image = await Jimp.read(buffer);
-				const width = image.bitmap.width;
-				const height = image.bitmap.height;
-
-				// Make everything white background
-				image.scan(0, 0, width, height, function (_x: any, _y: any, idx: any) {
-					const red = (this as any).bitmap.data[idx + 0];
-					const green = (this as any).bitmap.data[idx + 1];
-					const blue = (this as any).bitmap.data[idx + 2];
-
-					const brightness = (red + green + blue) / 3;
-
-					if (brightness < 150) {
-						// Darker pixels (text and lines) -> black
-						(this as any).bitmap.data[idx + 0] = 0;
-						(this as any).bitmap.data[idx + 1] = 0;
-						(this as any).bitmap.data[idx + 2] = 0;
-					} else {
-						// Light pixels (background) -> white
-						(this as any).bitmap.data[idx + 0] = 255;
-						(this as any).bitmap.data[idx + 1] = 255;
-						(this as any).bitmap.data[idx + 2] = 255;
-					}
-				});
-
-				return image
-					.resize(300, 90)
-					.contrast(0.3)
-					.greyscale()
-					.normalize()
-					.getBufferAsync(Jimp.MIME_PNG);
-			},
+			image: processImageWithJimpWhiteBackground(replaceBlackThicken),
 		},
 		{
 			name: 'jimp-black-background',
-			process: async (buffer: Buffer) => {
-				const image = await Jimp.read(buffer);
-				const width = image.bitmap.width;
-				const height = image.bitmap.height;
-
-				// First process like white background
-				image.scan(0, 0, width, height, function (_x: any, _y: any, idx: any) {
-					const red = (this as any).bitmap.data[idx + 0];
-					const green = (this as any).bitmap.data[idx + 1];
-					const blue = (this as any).bitmap.data[idx + 2];
-
-					const brightness = (red + green + blue) / 3;
-
-					if (brightness < 150) {
-						// Darker pixels (text and lines) -> black
-						(this as any).bitmap.data[idx + 0] = 0;
-						(this as any).bitmap.data[idx + 1] = 0;
-						(this as any).bitmap.data[idx + 2] = 0;
-					} else {
-						// Light pixels (background) -> white
-						(this as any).bitmap.data[idx + 0] = 255;
-						(this as any).bitmap.data[idx + 1] = 255;
-						(this as any).bitmap.data[idx + 2] = 255;
-					}
-				});
-
-				// Apply processing
-				const processedImage = image.resize(300, 90).contrast(0.3).greyscale().normalize();
-
-				// Invert colors (white <-> black)
-				return processedImage.invert().getBufferAsync(Jimp.MIME_PNG);
-			},
-		},
-		{
-			name: 'sharp-high-contrast',
-			process: async (buffer: Buffer) => {
-				return sharp(buffer).resize(300, 90).normalize().threshold(150).png().toBuffer();
-			},
-		},
-		{
-			name: 'edge-detection',
-			process: async (buffer: Buffer) => {
-				return sharp(buffer)
-					.resize(300, 90)
-					.convolve({
-						width: 3,
-						height: 3,
-						kernel: [-1, -1, -1, -1, 8, -1, -1, -1, -1],
-					})
-					.negate()
-					.threshold(200)
-					.png()
-					.toBuffer();
-			},
+			image: processImageWithJimpBlackBackground(replaceBlackThicken),
 		},
 	];
-
-	// Process all images simultaneously using Promise.all
-	const processedImages = await Promise.all(
-		preprocessingMethods.map(async (method) => {
-			try {
-				const processedBuffer = await method.process(imageBuffer);
-				const processedBase64 = processedBuffer.toString('base64');
-
-				// Share processed image to Discord
-				if (discord) {
-					try {
-						const timestamp = Date.now();
-						const processedPath = `captcha_${method.name}_${timestamp}.png`;
-						await fs.writeFile(processedPath, processedBuffer);
-						await fs.unlink(processedPath);
-					} catch (uploadError) {
-						console.error(`Failed to upload processed image (${method.name}):`, uploadError);
-					}
-				}
-
-				return {
-					name: method.name,
-					base64: processedBase64,
-				};
-			} catch (error) {
-				console.error(`Method ${method.name} failed:`, error);
-				return null;
-			}
-		})
-	);
-
-	// Filter out failed processing attempts
-	const validProcessedImages = processedImages.filter((img) => img !== null);
 
 	// Send all processed images to Gemini simultaneously
 	const contents = [
@@ -192,9 +61,9 @@ Output ONLY the 6-digit number, nothing else.
 If you see multiple possible interpretations, choose the most likely one.
 The images have been processed to remove interfering lines, focus on the clear numbers.`,
 				},
-				...validProcessedImages.map((img) => ({
+				...images.map((img) => ({
 					inlineData: {
-						data: img.base64,
+						data: img.image.toString('base64'),
 						mimeType: 'image/png',
 					},
 				})),
@@ -290,11 +159,7 @@ async function main(): Promise<void> {
 
 		// Handle CAPTCHA
 		const captchaImg = await page.$eval('img[src^="data:"]', (img: any) => img.src);
-		const captchaCode = await solveCaptchaWithMultipleMethods(
-			captchaImg,
-			env.gemini_api_key,
-			discord
-		);
+		const captchaCode = await solveCaptchaWithMultipleMethods(captchaImg, env.gemini_api_key);
 
 		await page.locator('[placeholder="上の画像の数字を入力"]').fill(captchaCode);
 		await page.locator('text=無料VPSの利用を継続する').click();
