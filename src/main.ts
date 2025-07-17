@@ -7,6 +7,7 @@ import { GoogleGenAI } from '@google/genai';
 import Jimp from 'jimp';
 import sharp from 'sharp';
 import * as speakeasy from 'speakeasy';
+import { PuppeteerScreenRecorder } from 'puppeteer-screen-recorder';
 
 function generateTOTPCode(secret: string): string {
 	return speakeasy.totp({
@@ -242,10 +243,12 @@ async function main(): Promise<void> {
 
 	const [page] = await browser.pages();
 	let recordingPath: string | null = null;
+	let recorder: PuppeteerScreenRecorder | null = null;
 
 	if (discord) {
-		recordingPath = `recording_${Date.now()}.webm`;
-		await page.screencast({ path: recordingPath as `${string}.webm` });
+		recordingPath = `recording_${Date.now()}.mp4`;
+		recorder = new PuppeteerScreenRecorder(page);
+		await recorder.start(recordingPath);
 	}
 
 	try {
@@ -342,8 +345,9 @@ async function main(): Promise<void> {
 		await setTimeout(5000);
 
 		// Stop recording and send file regardless of success/failure
-		if (discord && recordingPath) {
+		if (recorder && discord && recordingPath) {
 			try {
+				await recorder.stop();
 				await discord.sendFile(recordingPath, 'Xserver VPS renewal process recording');
 				await fs.unlink(recordingPath);
 			} catch (uploadError) {

@@ -25,6 +25,7 @@
 		"form-data": "^4.0.3",
 		"jimp": "^0.22.0",
 		"puppeteer": "^21.0.0",
+		"puppeteer-screen-recorder": "^3.0.6",
 		"sharp": "^0.33.0",
 		"speakeasy": "^2.0.0",
 		"zod": "^3.22.0"
