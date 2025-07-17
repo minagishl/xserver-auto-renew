@@ -6,6 +6,16 @@ import { DiscordWebhook } from './discord';
 import { GoogleGenAI } from '@google/genai';
 import Jimp from 'jimp';
 import sharp from 'sharp';
+import * as speakeasy from 'speakeasy';
+
+function generateTOTPCode(secret: string): string {
+	return speakeasy.totp({
+		secret: secret,
+		encoding: 'base32',
+		algorithm: 'sha1',
+		digits: 6,
+	});
+}
 
 async function solveCaptchaWithMultipleMethods(
 	imageData: string,
@@ -246,6 +256,22 @@ async function main(): Promise<void> {
 		await page.locator('#user_password').fill(loginEnv.password);
 		await page.locator('text=ログインする').click();
 		await page.waitForNavigation({ waitUntil: 'networkidle2' });
+
+		// Check if redirected to 2FA page
+		const currentUrl = page.url();
+		if (currentUrl.includes('https://secure.xserver.ne.jp/xapanel/myaccount/twostepauth/index')) {
+			console.log('Two-factor authentication required');
+
+			if (!loginEnv.totp_secret) {
+				throw new Error('Two-factor authentication is required but TOTP_SECRET is not configured');
+			}
+
+			const totpCode = generateTOTPCode(loginEnv.totp_secret);
+
+			await page.locator('input[name="auth_code"]').fill(totpCode);
+			await page.locator('input[value="ログイン"]').click();
+			await page.waitForNavigation({ waitUntil: 'networkidle2' });
+		}
 
 		console.log('Login successful!');
 

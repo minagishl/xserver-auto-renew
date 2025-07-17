@@ -12,6 +12,7 @@ const SettingsSchema = z.object({
 const LoginSettingsSchema = z.object({
   username: z.string().min(1, 'USERNAME is required'),
   password: z.string().min(1, 'PASSWORD is required'),
+  totp_secret: z.string().optional(),
 });
 
 export class Settings {
@@ -36,15 +37,18 @@ export class Settings {
 export class LoginSettings {
   public readonly username: string;
   public readonly password: string;
+  public readonly totp_secret?: string;
 
   constructor() {
     const env = {
       username: process.env.USERNAME,
       password: process.env.PASSWORD,
+      totp_secret: process.env.TOTP_SECRET,
     };
 
     const validated = LoginSettingsSchema.parse(env);
     this.username = validated.username;
     this.password = validated.password;
+    this.totp_secret = validated.totp_secret;
   }
 }
